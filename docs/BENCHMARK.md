@@ -1,6 +1,6 @@
 # Airlock — Benchmark Protocol and Evidence
 
-**Status:** protocol pre-registered, results not yet collected.
+**Status:** protocol pre-registered; B2a measured, B1–B5 outstanding.
 **Last updated:** 2026-07-30
 
 This document is written *before* the measurements exist. That ordering is
@@ -318,14 +318,85 @@ a finding worth reporting as an issue.
 
 ## 8. Results
 
-> **None yet.** Tables below are placeholders with their shape fixed in
-> advance. Every cell reads `—` until a committed run under `bench/results/`
-> fills it, and each filled cell links to the raw file it came from.
->
-> No number appears in this document that was not produced by `make bench` on
-> the hardware in §2.
+> **B2a is measured. B1–B5 are not.** Every unmeasured cell reads `—`. No
+> number appears in this document that was not produced by the committed
+> harness on the hardware in §2, from raw samples committed alongside it.
+
+### B2a — decision-function microbenchmark *(measured 2026-07-30)*
+
+The pure `decide()` path: capability check plus taint check, no token parsing,
+no Cedar evaluation, no I/O. **This is not B2.** B2 is the end-to-end broker
+and will be far slower; quoting B2a as if it were B2 would be dishonest.
+
+Raw samples: [`bench/results/*.samples.json`](../bench/results/) —
+5 independent repetitions × 100 samples = 500 per benchmark.
+Reproduce with `make bench-micro`, re-analyze with `make analyze`.
+
+| benchmark | median | IQR | p50 | p95 | p99 | p99.9 | max | CV | reps |
+|---|---|---|---|---|---|---|---|---|---|
+| `decide/allow/1` | 11.4 | 4.3 | 11.5 | 17.7 | 21.5 | 43.1 | 43.1 | **21.0%** ⚠ | 5 |
+| `decide/allow/8` | 18.2 | 1.6 | 17.8 | 24.3 | 29.5 | 35.6 | 35.6 | 4.9% | 5 |
+| `decide/allow/64` | 90.0 | 6.1 | 89.4 | 121.2 | 144.9 | 170.5 | 170.5 | 3.5% | 5 |
+| `decide/deny_out_of_scope` | 12.6 | 5.0 | 12.5 | 22.6 | 29.3 | 48.7 | 48.7 | **27.2%** ⚠ | 5 |
+| `decide/deny_illegal_flow` | 17.6 | 4.5 | 17.7 | 25.5 | 29.5 | 37.2 | 37.2 | **17.0%** ⚠ | 5 |
+| `taint/observe` | 2.0 | 0.6 | 2.1 | 3.1 | 4.3 | 8.5 | 8.5 | 14.4% | 5 |
+| `taint/check_egress` | 1.2 | 0.3 | 1.2 | 1.7 | 2.1 | 2.7 | 2.7 | **17.6%** ⚠ | 5 |
+
+⚠ = CV above the 15% threshold from §4 rule 4. **Four of seven benchmarks are
+flagged unreliable** and their medians should be read as approximate.
+
+#### What these numbers say
+
+**The decision function is not going to be the bottleneck.** Even the
+worst case — a 64-scope capability, where the scan is deliberately arranged so
+the matching scope is last — costs 90 ns. The §B2 target for the full broker is
+p99 under 1 ms, so the pure decision logic uses about 0.01% of that budget.
+Biscuit signature verification and Cedar evaluation will dominate B2 entirely.
+No optimization is warranted here, and doing any would be premature.
+
+**Scope matching is linear, and visibly so:** 11.4 ns → 18.2 ns → 90.0 ns for
+1, 8 and 64 scopes. That is the `scopes.iter().any(...)` scan behaving exactly
+as written. It would matter if real policies carried hundreds of scopes; a
+prefix-trie would fix it if they ever do. They currently don't, so it stays
+simple.
+
+**Taint tracking is effectively free** — 1.2 ns to check egress, 2.0 ns to
+propagate a label. Both are a couple of integer comparisons. This is worth
+stating plainly because "add dataflow tracking" sounds expensive and, at least
+for the lattice operations themselves, it isn't. The real cost of the approach
+is in labelling discipline, not CPU.
+
+**The timing side channel predicted in the threat model is real and
+measurable.** `decide/allow/8` (18.2 ns) versus `decide/deny_out_of_scope`
+(12.6 ns) differ by roughly 5.6 ns, because a denial fails the host comparison
+early while an allow runs a full prefix match. An attacker inside a sandbox who
+can time their own denied calls learns something about policy shape. This was
+listed as accepted-and-unmitigated in
+[THREAT_MODEL.md §6](THREAT_MODEL.md#6-currently-unmitigated) before it was
+measured; the measurement confirms it rather than discovering it.
+
+#### Honesty note on measurement stability
+
+This benchmark was run twice. Between the two runs the CV flags moved
+substantially — `decide/allow/64` went from 21.1% to 3.5%, while
+`decide/deny_out_of_scope` went from 9.4% to 27.2%. The medians stayed close
+(90.99 → 90.0 ns, 12.0 → 12.6 ns), so the central estimates look stable, but
+**the variance itself is not reproducible run to run.**
+
+That is consistent with §5's hybrid P-core/E-core disclosure: which cores the
+benchmark threads land on differs per run, and no amount of repetition inside a
+run fixes an effect that operates between runs. It is the strongest available
+evidence that this laptop is a noisy measurement environment, and it is the
+reason the CV column is published next to every median instead of being
+summarized away.
+
+Only the second run is committed under `bench/results/`; the first was
+discarded because it predated a fix to benchmark-name handling in the harness,
+not because of its numbers.
 
 ### B1 — Prompt-injection resistance
+
+*Not measured. Requires the broker, recorder and AgentDojo integration (Phase 4).*
 
 | Arm | Attack Success Rate ↓ | Benign Utility ↑ | Δ p50 latency | Δ p99 latency |
 |---|---|---|---|---|
@@ -336,7 +407,10 @@ a finding worth reporting as an issue.
 
 95% bootstrap CI on (A1 ASR − A2 ASR): —
 
-### B2 — Policy decision latency
+### B2 — Policy decision latency (end-to-end broker)
+
+*Not measured. Requires the tool-broker with Biscuit verification and Cedar
+evaluation (Phase 1). See B2a above for the decision function alone.*
 
 | Concurrency | Cache | p50 | p95 | p99 | p99.9 | max | throughput | CV |
 |---|---|---|---|---|---|---|---|---|
@@ -348,6 +422,8 @@ a finding worth reporting as an issue.
 
 ### B3 — Sandbox cold start
 
+*Not measured. Requires the three isolator backends (Phase 2).*
+
 | Backend | p50 | p95 | p99 | RSS/sandbox | CV |
 |---|---|---|---|---|---|
 | docker | — | — | — | — | — |
@@ -356,12 +432,19 @@ a finding worth reporting as an issue.
 
 ### B4 — Concurrent sandbox ceiling
 
+*Not measured. Requires the isolator backends (Phase 2). Expected to be roughly
+15–25 Firecracker microVMs on the hardware in §2 — see §B4 for why the honest
+number matters more than the architectural target.*
+
 | Backend | Max concurrent | Limiting factor | Marginal RSS/sandbox |
 |---|---|---|---|
 | gvisor | — | — | — |
 | firecracker | — | — | — |
 
 ### B5 — Escape suite
+
+*Not measured. Requires the sandbox (Phase 2). Until this table is filled, the
+"no route out" property in DESIGN.md is design intent and nothing more.*
 
 | Techniques attempted | Blocked | Escaped | CI status |
 |---|---|---|---|
