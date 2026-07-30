@@ -100,7 +100,15 @@ Working:
 
 Not written yet: Biscuit token encoding, the Cedar policy engine, the broker
 service, all three sandbox backends, the recorder and replay engine, and the
-AgentDojo benchmark. Roughly phases 1 through 4.
+AgentDojo benchmark. Roughly phases 1 through 4 — see
+[PHASES.md](docs/PHASES.md).
+
+Rather than ask you to take any of that on faith, `make verify-phase0` checks
+each Phase 0 exit criterion and prints PASS, FAIL, or BLOCKED. It currently
+reports 17 passed, 0 failed, 5 blocked; all five blocked items need Docker,
+gVisor or `/dev/kvm`, which need one privileged install. It exits non-zero
+until every one of them passes, so the phase can't be declared done by
+assertion.
 
 The property tests are the part I'd point at first. They're in
 [prop_attenuation.rs](crates/airlock-core/tests/prop_attenuation.rs), and they

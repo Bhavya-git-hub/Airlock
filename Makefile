@@ -160,6 +160,14 @@ escape-test: ## [Phase 2] Adversarial suite: every egress attempt MUST fail
 .PHONY: bench
 bench: bench-micro anchor-evidence ## Everything runnable today, then anchor it
 
+.PHONY: verify-phase0
+verify-phase0: ## Check every Phase 0 exit criterion (0=done, 2=needs root setup)
+	@bash scripts/verify-phase0.sh
+
+.PHONY: setup
+setup: ## One-time privileged setup: docker, gvisor, firecracker, kvm group
+	@bash scripts/setup-wsl.sh
+
 .PHONY: sysinfo
 sysinfo: ## Capture the exact hardware/software the numbers were measured on
 	@mkdir -p $(BENCH_DIR)
