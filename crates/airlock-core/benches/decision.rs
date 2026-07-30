@@ -10,8 +10,8 @@
 //! Run with:  cargo bench -p airlock-core
 
 use airlock_core::{
-    decide, Capability, Confidentiality, Integrity, Label, Method, Request, SessionLabel,
-    SinkClearance, Scope,
+    decide, Capability, Confidentiality, Integrity, Label, Method, Request, Scope, SessionLabel,
+    SinkClearance,
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
@@ -69,16 +69,28 @@ fn bench_decide(c: &mut Criterion) {
     let out_of_scope = Request::new(Method::Delete, "evil.example", "/steal");
     g.bench_function("deny_out_of_scope", |b| {
         b.iter(|| {
-            decide(black_box(&cap), black_box(&session), black_box(&out_of_scope),
-                   black_box(sink), black_box(0), black_box(0))
+            decide(
+                black_box(&cap),
+                black_box(&session),
+                black_box(&out_of_scope),
+                black_box(sink),
+                black_box(0),
+                black_box(0),
+            )
         })
     });
 
     let tainted = tainted_session();
     g.bench_function("deny_illegal_flow", |b| {
         b.iter(|| {
-            decide(black_box(&cap), black_box(&tainted), black_box(&req),
-                   black_box(sink), black_box(0), black_box(0))
+            decide(
+                black_box(&cap),
+                black_box(&tainted),
+                black_box(&req),
+                black_box(sink),
+                black_box(0),
+                black_box(0),
+            )
         })
     });
 
@@ -92,7 +104,10 @@ fn bench_taint_propagation(c: &mut Criterion) {
     g.bench_function("observe", |b| {
         b.iter_batched(
             SessionLabel::new,
-            |mut s| { s.observe(black_box(label)); s },
+            |mut s| {
+                s.observe(black_box(label));
+                s
+            },
             criterion::BatchSize::SmallInput,
         )
     });

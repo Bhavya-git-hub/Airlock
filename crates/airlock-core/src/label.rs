@@ -62,7 +62,10 @@ impl Label {
     };
 
     pub const fn new(confidentiality: Confidentiality, integrity: Integrity) -> Self {
-        Self { confidentiality, integrity }
+        Self {
+            confidentiality,
+            integrity,
+        }
     }
 
     /// Least upper bound — the label a session carries after observing both
@@ -166,13 +169,19 @@ impl SinkClearance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error("data is {data:?} but sink accepts at most {sink_accepts:?}")]
-    TooConfidential { data: Confidentiality, sink_accepts: Confidentiality },
+    TooConfidential {
+        data: Confidentiality,
+        sink_accepts: Confidentiality,
+    },
 
     #[error("session has read untrusted input; sink requires trusted integrity")]
     Tainted,
 
     #[error("data is {data:?} (sink accepts {sink_accepts:?}) and session is tainted")]
-    TooConfidentialAndTainted { data: Confidentiality, sink_accepts: Confidentiality },
+    TooConfidentialAndTainted {
+        data: Confidentiality,
+        sink_accepts: Confidentiality,
+    },
 }
 
 /// The running taint state of one agent session.
@@ -190,7 +199,10 @@ pub struct SessionLabel {
 impl SessionLabel {
     #[must_use]
     pub fn new() -> Self {
-        Self { current: Label::BOTTOM, observations: 0 }
+        Self {
+            current: Label::BOTTOM,
+            observations: 0,
+        }
     }
 
     /// Record that the session has read data at `label`.

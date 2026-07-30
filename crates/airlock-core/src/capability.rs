@@ -42,7 +42,11 @@ pub struct Scope {
 
 impl Scope {
     pub fn new(method: Method, host: impl Into<String>, path_prefix: impl Into<String>) -> Self {
-        Self { method, host: host.into(), path_prefix: path_prefix.into() }
+        Self {
+            method,
+            host: host.into(),
+            path_prefix: path_prefix.into(),
+        }
     }
 
     /// Does `self` grant everything `other` grants?
@@ -73,7 +77,11 @@ pub struct Request {
 
 impl Request {
     pub fn new(method: Method, host: impl Into<String>, path: impl Into<String>) -> Self {
-        Self { method, host: host.into(), path: path.into() }
+        Self {
+            method,
+            host: host.into(),
+            path: path.into(),
+        }
     }
 }
 
@@ -101,15 +109,27 @@ pub struct Capability {
 
 impl Capability {
     #[must_use]
-    pub fn new(scopes: impl IntoIterator<Item = Scope>, expires_at: u64, budget_micros: u64) -> Self {
-        Self { scopes: scopes.into_iter().collect(), expires_at, budget_micros }
+    pub fn new(
+        scopes: impl IntoIterator<Item = Scope>,
+        expires_at: u64,
+        budget_micros: u64,
+    ) -> Self {
+        Self {
+            scopes: scopes.into_iter().collect(),
+            expires_at,
+            budget_micros,
+        }
     }
 
     /// The empty capability: permits nothing. What a fully attenuated token
     /// decays into, and the correct thing to fall back to on any error.
     #[must_use]
     pub fn nothing() -> Self {
-        Self { scopes: BTreeSet::new(), expires_at: 0, budget_micros: 0 }
+        Self {
+            scopes: BTreeSet::new(),
+            expires_at: 0,
+            budget_micros: 0,
+        }
     }
 
     pub fn scopes(&self) -> impl Iterator<Item = &Scope> {
@@ -166,8 +186,12 @@ impl Capability {
 
         Capability {
             scopes,
-            expires_at: a.not_after.map_or(self.expires_at, |t| t.min(self.expires_at)),
-            budget_micros: a.budget_cap.map_or(self.budget_micros, |b| b.min(self.budget_micros)),
+            expires_at: a
+                .not_after
+                .map_or(self.expires_at, |t| t.min(self.expires_at)),
+            budget_micros: a
+                .budget_cap
+                .map_or(self.budget_micros, |b| b.min(self.budget_micros)),
         }
     }
 }
@@ -226,9 +250,11 @@ mod tests {
     #[test]
     fn attenuation_cannot_widen_scope() {
         // Ask for something the parent never held.
-        let child = cap().attenuate(
-            &Attenuation::new().restrict_to([Scope::new(Method::Delete, "api.internal", "/v1/")]),
-        );
+        let child = cap().attenuate(&Attenuation::new().restrict_to([Scope::new(
+            Method::Delete,
+            "api.internal",
+            "/v1/",
+        )]));
         let req = Request::new(Method::Delete, "api.internal", "/v1/users/1");
         assert_eq!(child.permits(&req, 0, 0), Err(Denial::OutOfScope));
         assert_eq!(child.scopes().count(), 0);
@@ -236,14 +262,25 @@ mod tests {
 
     #[test]
     fn attenuation_narrows_path_prefix() {
-        let child = cap().attenuate(
-            &Attenuation::new()
-                .restrict_to([Scope::new(Method::Get, "api.internal", "/v1/users")]),
-        );
-        assert!(child.permits(&Request::new(Method::Get, "api.internal", "/v1/users/1"), 0, 0).is_ok());
+        let child = cap().attenuate(&Attenuation::new().restrict_to([Scope::new(
+            Method::Get,
+            "api.internal",
+            "/v1/users",
+        )]));
+        assert!(child
+            .permits(
+                &Request::new(Method::Get, "api.internal", "/v1/users/1"),
+                0,
+                0
+            )
+            .is_ok());
         // Sibling paths the parent allowed are now gone.
         assert_eq!(
-            child.permits(&Request::new(Method::Get, "api.internal", "/v1/orders"), 0, 0),
+            child.permits(
+                &Request::new(Method::Get, "api.internal", "/v1/orders"),
+                0,
+                0
+            ),
             Err(Denial::OutOfScope)
         );
     }
@@ -251,8 +288,16 @@ mod tests {
     #[test]
     fn ttl_and_budget_only_shrink() {
         let child = cap().attenuate(&Attenuation::new().not_after(9_999).budget_cap(9_999_999));
-        assert_eq!(child.expires_at(), 1_000, "expiry must not extend past the parent");
-        assert_eq!(child.budget_micros(), 50_000, "budget must not exceed the parent");
+        assert_eq!(
+            child.expires_at(),
+            1_000,
+            "expiry must not extend past the parent"
+        );
+        assert_eq!(
+            child.budget_micros(),
+            50_000,
+            "budget must not exceed the parent"
+        );
     }
 
     #[test]

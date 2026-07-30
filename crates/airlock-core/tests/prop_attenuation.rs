@@ -14,8 +14,8 @@
 //! cases — frequent.
 
 use airlock_core::{
-    Attenuation, Capability, Confidentiality, Integrity, Label, Method, Request, SessionLabel,
-    SinkClearance, Scope,
+    Attenuation, Capability, Confidentiality, Integrity, Label, Method, Request, Scope,
+    SessionLabel, SinkClearance,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -54,8 +54,7 @@ fn arb_path() -> impl Strategy<Value = String> {
 }
 
 fn arb_scope() -> impl Strategy<Value = Scope> {
-    (arb_method(), arb_host(), arb_path())
-        .prop_map(|(m, h, p)| Scope::new(m, h, p))
+    (arb_method(), arb_host(), arb_path()).prop_map(|(m, h, p)| Scope::new(m, h, p))
 }
 
 fn arb_capability() -> impl Strategy<Value = Capability> {
@@ -88,16 +87,35 @@ fn arb_request() -> impl Strategy<Value = Request> {
     (arb_method(), arb_host(), arb_path()).prop_map(|(m, h, p)| Request::new(m, h, p))
 }
 
+fn arb_confidentiality() -> impl Strategy<Value = Confidentiality> {
+    prop_oneof![
+        Just(Confidentiality::Public),
+        Just(Confidentiality::Internal),
+        Just(Confidentiality::Secret)
+    ]
+}
+
 fn arb_label() -> impl Strategy<Value = Label> {
     (
-        prop_oneof![
-            Just(Confidentiality::Public),
-            Just(Confidentiality::Internal),
-            Just(Confidentiality::Secret)
-        ],
+        arb_confidentiality(),
         prop_oneof![Just(Integrity::Untrusted), Just(Integrity::Trusted)],
     )
         .prop_map(|(c, i)| Label::new(c, i))
+}
+
+/// Trusted labels, *constructed* rather than filtered.
+///
+/// The obvious spelling is `arb_label().prop_filter(|l| l.integrity ==
+/// Trusted)`, and that is what this used to be. It discards roughly half of
+/// all draws, and a vector of up to 30 of them compounds that until proptest
+/// exhausts its 65,536 local-reject budget and aborts the test. It passed at
+/// the default 256 cases and only failed in CI at 8,192 — the invariant was
+/// never violated, the generator simply could not produce enough valid inputs.
+///
+/// Constructing the value directly has a zero rejection rate. As a rule,
+/// prefer generating the shape you need over filtering for it.
+fn arb_trusted_label() -> impl Strategy<Value = Label> {
+    arb_confidentiality().prop_map(|c| Label::new(c, Integrity::Trusted))
 }
 
 // ---------------------------------------------- invariant 1: attenuation
@@ -221,9 +239,7 @@ proptest! {
     /// trustworthy reading restores its access to public egress.
     #[test]
     fn prop_taint_cannot_be_laundered(
-        clean_reads in prop::collection::vec(
-            arb_label().prop_filter("trusted only", |l| l.integrity == Integrity::Trusted),
-            0..30),
+        clean_reads in prop::collection::vec(arb_trusted_label(), 0..30),
     ) {
         let mut session = SessionLabel::new();
         session.observe(Label::new(Confidentiality::Public, Integrity::Untrusted));

@@ -303,7 +303,7 @@ make bench-policy        # B2  — no API key needed
 make bench-coldstart     # B3  — needs gVisor + Firecracker installed
 make escape-test         # B5  — pass/fail, no API key needed
 
-export ANTHROPIC_API_KEY=...
+export LLM_API_KEY=...   # whichever provider bench/injection/config.toml names
 make bench-injection     # B1  — ~$10-30 first run, $0 on replay
 
 make bench               # everything, then anchors results in the ledger

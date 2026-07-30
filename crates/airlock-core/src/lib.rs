@@ -84,8 +84,16 @@ impl Decision {
         spent_micros: u64,
     ) -> Self {
         match decide(capability, session, req, sink, now, spent_micros) {
-            Ok(()) => Self { allowed: true, reason: None, label_at_decision: session.label() },
-            Err(e) => Self { allowed: false, reason: Some(e), label_at_decision: session.label() },
+            Ok(()) => Self {
+                allowed: true,
+                reason: None,
+                label_at_decision: session.label(),
+            },
+            Err(e) => Self {
+                allowed: false,
+                reason: Some(e),
+                label_at_decision: session.label(),
+            },
         }
     }
 }
@@ -98,7 +106,11 @@ mod tests {
     fn capability_denial_reported_before_flow_violation() {
         // Tainted session AND a request outside scope: the unauthorized
         // verdict wins, because that is the more actionable one.
-        let cap = Capability::new([Scope::new(Method::Get, "api.internal", "/v1/")], 1_000, 1_000);
+        let cap = Capability::new(
+            [Scope::new(Method::Get, "api.internal", "/v1/")],
+            1_000,
+            1_000,
+        );
         let mut session = SessionLabel::new();
         session.observe(Label::new(Confidentiality::Public, Integrity::Untrusted));
 
@@ -116,7 +128,11 @@ mod tests {
 
     #[test]
     fn authorized_but_tainted_is_an_illegal_flow() {
-        let cap = Capability::new([Scope::new(Method::Post, "hooks.example", "/")], 1_000, 1_000);
+        let cap = Capability::new(
+            [Scope::new(Method::Post, "hooks.example", "/")],
+            1_000,
+            1_000,
+        );
         let mut session = SessionLabel::new();
         session.observe(Label::new(Confidentiality::Public, Integrity::Untrusted));
 
