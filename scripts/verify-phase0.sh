@@ -18,7 +18,7 @@
 #           --quick  skip the slow cargo/go checks
 
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 QUICK=0
 [[ "${1:-}" == "--quick" ]] && QUICK=1
@@ -69,9 +69,9 @@ fi
 
 # ---------------------------------------------------------------- artifacts
 section "Required artifacts"
-for f in docs/DESIGN.md docs/THREAT_MODEL.md docs/BENCHMARK.md \
+for f in docs/DESIGN.md docs/THREAT_MODEL.md docs/BENCHMARK.md docs/PHASES.md \
          .github/workflows/ci.yml docker-compose.yml Makefile; do
-  [[ -s "$f" ]] && pass "$f" || fail "$f" "missing or empty"
+  if [[ -s "$f" ]]; then pass "$f"; else fail "$f" "missing or empty"; fi
 done
 
 # The threat model is only worth having if it says what it does NOT cover.
@@ -115,14 +115,19 @@ else
       [[ $i -eq 30 ]] && ok=0
       sleep 2
     done
-    [[ $ok -eq 1 ]] && pass "make dev boots core stack" "postgres + redis healthy" \
-                    || fail "make dev boots core stack" "containers never became healthy"
+    if [[ $ok -eq 1 ]]; then
+      pass "make dev boots core stack" "postgres + redis healthy"
+    else
+      fail "make dev boots core stack" "containers never became healthy"
+    fi
 
     used=$(docker stats --no-stream --format '{{.MemUsage}}' 2>/dev/null \
            | awk -F'/' '{gsub(/[^0-9.]/,"",$1); s+=$1} END{printf "%.0f", s+0}')
-    if [[ -n "$used" && "$used" -lt 500 ]]
-      then pass "core stack under memory budget" "${used}M < 500M"
-      else fail "core stack under memory budget" "${used}M >= 500M"; fi
+    if [[ -n "$used" && "$used" -lt 500 ]]; then
+      pass "core stack under memory budget" "${used}M < 500M"
+    else
+      fail "core stack under memory budget" "${used}M >= 500M"
+    fi
   else
     fail "make dev boots core stack" "docker compose up failed"
   fi
@@ -130,9 +135,11 @@ fi
 
 # ---------------------------------------------------------------- isolation
 section "Isolation backends"
-command -v runsc >/dev/null 2>&1 \
-  && pass "gVisor installed" "$(runsc --version 2>&1 | head -1 | awk '{print $NF}')" \
-  || blocked "gVisor installed" "run scripts/setup-wsl.sh"
+if command -v runsc >/dev/null 2>&1; then
+  pass "gVisor installed" "$(runsc --version 2>&1 | head -1 | awk '{print $NF}')"
+else
+  blocked "gVisor installed" "run scripts/setup-wsl.sh"
+fi
 
 if ! command -v firecracker >/dev/null 2>&1; then
   blocked "Firecracker installed" "run scripts/setup-wsl.sh"
