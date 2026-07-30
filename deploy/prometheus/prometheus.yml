@@ -1,0 +1,35 @@
+# Dev scrape config. Production values live in deploy/helm.
+#
+# 15s interval rather than the more usual 5s: on a 3.7 GB guest, Prometheus
+# cardinality is a real memory cost and this is a dev box, not a monitoring
+# system. Benchmark evidence goes to bench/results/ as raw JSON, never scraped
+# out of here — a TSDB with 3-day retention is not a provenance mechanism.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: dev
+    host: laptop
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Airlock services. These run on the WSL host, not in compose, so scrape via
+  # the docker bridge gateway rather than a service name.
+  - job_name: tool-broker
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+        labels: { component: broker, plane: policy }
+
+  - job_name: control-api
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels: { component: control-api, plane: policy }
+
+  - job_name: vm-agent
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+        labels: { component: vm-agent, plane: data }

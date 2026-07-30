@@ -1,0 +1,53 @@
+# Build artifacts — these are redirected to WSL-native paths (see Makefile),
+# but ignore them anyway in case someone builds in-tree.
+/target/
+**/target/
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+go.work
+go.work.sum
+
+# Node / console
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Python (bench harness)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local state
+.env
+.env.local
+*.local.yaml
+/data/
+/tmp/
+
+# Benchmark OUTPUT is committed on purpose (see docs/BENCHMARK.md) — raw
+# results are evidence. Only scratch/intermediate files are ignored here.
+/bench/results/*.tmp
+/bench/results/scratch/
+/bench/.cache/
+
+# Secrets — never
+*.pem
+*.key
+!testdata/**/*.pem
+!testdata/**/*.key
+secrets.yaml
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

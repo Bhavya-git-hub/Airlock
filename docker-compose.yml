@@ -1,0 +1,211 @@
+# Airlock dev stack, tuned for an 8 GB laptop (WSL2 guest ~3.7 GB).
+#
+# Every service has a hard mem_limit. The defaults are deliberately small and
+# the total is budgeted, not accidental:
+#
+#   core (default)   postgres 256M + redis 128M                  =  384M
+#   +obs             prometheus 256M + grafana 192M + jaeger 200M =  648M
+#   +storage         minio 192M                                   =  192M
+#   +events          redpanda 640M                                =  640M
+#   ------------------------------------------------------------------------
+#   everything at once                                            = 1864M
+#
+# `make dev` starts core only. Bring up a profile when you need it and take it
+# down when you don't — on this machine you cannot run all four at once
+# alongside a Rust link job. See docs/DESIGN.md for why Redpanda replaced
+# Kafka and why there is no Neo4j or ClickHouse here.
+
+name: airlock
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1.0
+    environment:
+      POSTGRES_USER: airlock
+      POSTGRES_PASSWORD: airlock
+      POSTGRES_DB: airlock
+      # Deterministic collation so index behaviour matches CI.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    command:
+      - postgres
+      # Tuned for a 256M container, not for throughput. Do not copy these
+      # into the production Helm values; see deploy/helm for those.
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=50
+      - -c
+      - wal_buffers=4MB
+      # Needed for the ledger: we want fsync honesty even in dev, because
+      # Phase 3 measures ledger append latency and lying here would poison it.
+      - -c
+      - fsync=on
+      - -c
+      - synchronous_commit=on
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airlock -d airlock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    command:
+      - redis-server
+      - --maxmemory
+      - 96mb
+      # noeviction, NOT allkeys-lru: Redis holds capability leases and budget
+      # counters. Silently evicting a lease would turn a memory limit into an
+      # authorization bug. Fail loudly instead.
+      - --maxmemory-policy
+      - noeviction
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------- profile: storage
+  minio:
+    image: minio/minio:latest
+    profiles: ["storage", "full"]
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.5
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: airlock
+      MINIO_ROOT_PASSWORD: airlock123
+      MINIO_BROWSER: "on"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------- profile: obs
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["obs", "full"]
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Short retention: this is a dev box, and benchmark evidence is written
+      # to bench/results/ as raw JSON, not scraped out of Prometheus.
+      - --storage.tsdb.retention.time=3d
+      - --storage.tsdb.retention.size=512MB
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["obs", "full"]
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.5
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Plugin fetching at boot costs memory and needs network; dashboards are
+      # provisioned from disk and committed to the repo instead.
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    profiles: ["obs", "full"]
+    mem_limit: 200m
+    memswap_limit: 200m
+    cpus: 0.5
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      # Cap the in-memory trace store; the default is unbounded and will
+      # happily eat the whole container.
+      SPAN_STORAGE_TYPE: memory
+      MEMORY_MAX_TRACES: "5000"
+    ports:
+      - "127.0.0.1:16686:16686"  # UI
+      - "127.0.0.1:4317:4317"    # OTLP gRPC
+      - "127.0.0.1:4318:4318"    # OTLP HTTP
+
+  # ---------------------------------------------------------------- profile: events
+  # Redpanda, not Kafka: no JVM, ~600M instead of ~1.5G, same wire protocol.
+  # Justified in docs/DESIGN.md under "Rejected alternatives".
+  redpanda:
+    image: redpandadata/redpanda:latest
+    profiles: ["events", "full"]
+    mem_limit: 640m
+    memswap_limit: 640m
+    cpus: 1.0
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://127.0.0.1:9092
+    ports:
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:9644:9644"  # admin API
+    volumes:
+      - redpandadata:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  miniodata:
+  promdata:
+  grafanadata:
+  redpandadata:

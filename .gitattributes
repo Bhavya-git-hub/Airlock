@@ -1,0 +1,16 @@
+# Shell scripts and Makefiles must keep LF endings — they run inside WSL/Linux
+# and CRLF breaks the shebang with "bad interpreter: /bin/bash^M".
+* text=auto eol=lf
+*.sh    text eol=lf
+Makefile text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows-only files keep CRLF
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+# Benchmark evidence is data, never normalize it
+bench/results/**  -text
+*.png binary
+*.jpg binary

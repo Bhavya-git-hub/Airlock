@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# Cancel superseded runs on the same branch — CI minutes are not free and a
+# stale run's result is never interesting.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on warnings. Warnings that are allowed to accumulate stop
+  # being read within about a week.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+  # The property suite runs separately with a much larger case count than the
+  # default 256. These invariants are the security model — a counterexample
+  # that only shows up at case 4,000 is exactly the one worth finding, and it
+  # is worth a few extra CI minutes to look for it.
+  properties:
+    name: security invariants (deep property run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Attenuation + taint invariants (8192 cases each)
+        env:
+          PROPTEST_CASES: "8192"
+        run: cargo test -p airlock-core --test prop_attenuation -- --nocapture
+
+      # A proptest failure writes a regression seed file. Capturing it means a
+      # counterexample found in CI can be replayed exactly on a laptop.
+      - name: Upload proptest regression seeds
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proptest-regressions
+          path: "**/proptest-regressions/**"
+
+  scripts:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -x scripts/*.sh bench/*.sh
+
+  # Phase 2 will add:
+  #   escape-suite  — every egress/breakout attempt must fail, on every commit
+  #   go            — vet, golangci-lint, test -race (once control-api exists)
+  # Deliberately absent rather than stubbed green: a job that passes because it
+  # tests nothing is worse than no job.

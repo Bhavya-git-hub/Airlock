@@ -1,0 +1,15 @@
+# Provisioned from disk and committed, so a fresh `make dev-obs` comes up with
+# working dashboards and nobody has to click through setup. It also means
+# GF_INSTALL_PLUGINS can stay empty — plugin fetching at boot costs memory and
+# needs network.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
